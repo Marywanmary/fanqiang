@@ -1,0 +1,177 @@
+# ====================================================================
+# Mihomo (Clash.Meta) 核心通用模板基础配置 - 高阶分流版
+# ====================================================================
+
+mixed-port: 7890
+allow-lan: true
+log-level: info
+ipv6: true
+
+# OpenClash 路由级内建接管
+tun:
+  enable: false
+# Vernesong Smart 内核智能路由与机器学习增强配置
+smart-routing: true
+lightgbm-model: ./model.bin
+
+dns:
+  enable: true
+  prefer-h3: true
+  enhanced-mode: redir-host
+  listen: 0.0.0.0:7874
+  nameserver:
+    - 119.29.29.29
+    - 223.5.5.5
+  fallback:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+  nameserver-policy:
+    "geosite:gfw,geolocation-!cn": ["proxy:🔍 DNS解析专用"]
+
+proxy-providers:
+  provider_pre:
+    type: file
+    path: ./subpre_nodes.yaml
+    health-check: {enable: true, url: "http://cp.cloudflare.com/generate_204", interval: 300}
+  provider_cf:
+    type: file
+    path: ./subcfnew.yaml
+    health-check: {enable: true, url: "http://cp.cloudflare.com/generate_204", interval: 300}
+  provider_free:
+    type: file
+    path: ./subfreenew.yaml
+    health-check: {enable: true, url: "http://cp.cloudflare.com/generate_204", interval: 300}
+
+# 引入远端高效规则集...
+rule-providers:
+  microsoft: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/microsoft.yaml", path: ./ruleset/microsoft.yaml, interval: 86400}
+  apple: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/apple.yaml", path: ./ruleset/apple.yaml, interval: 86400}
+  netflix: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/netflix.yaml", path: ./ruleset/netflix.yaml, interval: 86400}
+  disney: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/disney.yaml", path: ./ruleset/disney.yaml, interval: 86400}
+  reddit: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/reddit.yaml", path: ./ruleset/reddit.yaml, interval: 86400}
+  ai: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/category-ai.yaml", path: ./ruleset/category-ai.yaml, interval: 86400}
+  youtube: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/youtube.yaml", path: ./ruleset/youtube.yaml, interval: 86400}
+  gfw: {type: http, behavior: geosite, url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/gfw.yaml", path: ./ruleset/gfw.yaml, interval: 86400}
+
+proxy-groups:
+  # ==================== A. 核心分流总控层 ====================
+  - name: 🚀 节点选择
+    type: select
+    proxies:
+      - 💎 SubPre-All
+      - 🌍 视频与普通网页
+      - DIRECT
+
+  - name: 🍏 微软/苹果/FCM
+    type: select
+    proxies:
+      - DIRECT
+      - 💎 SubPre-All
+
+  - name: 🎬 国际流媒体
+    type: select
+    proxies:
+      - 💎 SubPre-All
+
+  - name: 💬 社交与阻断
+    type: select
+    proxies:
+      - 💎 SubPre-All
+
+  - name: 🤖 人工智能AI
+    type: select
+    proxies:
+      - 💎 机场-新加坡自动
+      - 💎 机场-日本自动
+      - 💎 机场-台湾自动
+      - 💎 机场-美国自动
+
+  # 🎯 核心演进：对 CF 和 免费通道使用【负载均衡】，并发榨干免费节点的总带宽！看网页看视频飞快
+  - name: 🌍 视频与普通网页
+    type: load-balance
+    strategy: consistent-hashing
+    url: http://cp.cloudflare.com/generate_204
+    interval: 150
+    filter: "(?i)(CF_|Free_)"
+    use:
+      - provider_cf
+      - provider_free
+    proxies:
+      - 💎 SubPre-All  # 免费节点全挂时自动用收费机场保底
+
+  - name: 🔍 DNS解析专用
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 600
+    filter: "(?i)Pre_.*(HK|JP|SG|TW)"
+    use:
+      - provider_pre
+
+  # ==================== B. 全量测速 All 组 ====================
+  - name: 💎 SubPre-All
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    tolerance: 50
+    filter: "(?i)Pre_"
+    use: [- provider_pre]
+
+  - name: ☁️ SubCF-All
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    tolerance: 50
+    filter: "(?i)CF_"
+    use: [- provider_cf]
+
+  - name: 🌍 SubFree-All
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    tolerance: 50
+    filter: "(?i)Free_"
+    use: [- provider_free]
+
+  # ==================== C. 收费机场国家细分层 ====================
+  - name: 💎 机场-新加坡自动
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    filter: "(?i)Pre_SG"
+    use: [- provider_pre]
+
+  - name: 💎 机场-日本自动
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    filter: "(?i)Pre_JP"
+    use: [- provider_pre]
+
+  - name: 💎 机场-台湾自动
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    filter: "(?i)Pre_TW"
+    use: [- provider_pre]
+
+  - name: 💎 机场-美国自动
+    type: url-test
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    filter: "(?i)Pre_US"
+    use: [- provider_pre]
+
+# 规则流保持高效原样...
+rules:
+  - GEOIP,lan,DIRECT
+  - RULE-SET,netflix,🎬 国际流媒体
+  - RULE-SET,disney,🎬 国际流媒体
+  - RULE-SET,reddit,💬 社交与阻断
+  - RULE-SET,ai,🤖 人工智能AI
+  - RULE-SET,microsoft,🍏 微软/苹果/FCM
+  - RULE-SET,apple,🍏 微软/苹果/FCM
+  - RULE-SET,youtube,🌍 视频与普通网页
+  - RULE-SET,gfw,🌍 视频与普通网页
+  - GEOSITE,CN,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,💎 Sub-All
